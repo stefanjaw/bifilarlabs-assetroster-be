@@ -1,4 +1,4 @@
 [submodule "bifi_app_be"]
 	path = bifi_app_be
-	url = https://github.com/stefanjaw/bifi_app_be.git
+	url = git@github.com:stefanjaw/bifi_app_be.git
 	branch = nodev22
