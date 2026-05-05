@@ -1,7 +1,56 @@
-# use node 22
-FROM node:22 AS build
+# =========================
+# 1️⃣ BUILD STAGE
+# =========================
+FROM node:22-slim AS build
 
-# install dependencies
+WORKDIR /app
+
+# Install required packages
+RUN apt-get update && apt-get install -y \
+    git \
+    openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Setup SSH properly
+RUN mkdir -p /root/.ssh
+
+# Copy SSH keys FIRST
+COPY ssh_keys/ /root/.ssh
+
+# Fix permissions (important)
+RUN chmod 700 /root/.ssh && \
+    chmod 600 /root/.ssh/id_rsa
+
+# Add GitHub to known_hosts
+RUN ssh-keyscan github.com >> /root/.ssh/known_hosts
+
+# Copy project
+COPY . .
+
+# Init submodules
+RUN git submodule update --init --recursive
+
+# Checkout branch
+RUN git -C ./bifi_app_be checkout nodev22
+
+# Install dependencies
+RUN npm --prefix ./bifi_app_be install
+
+# Build project
+ENV NODE_OPTIONS=--max_old_space_size=4096
+RUN npm --prefix ./bifi_app_be run build
+
+
+# =========================
+# 2️⃣ RUNTIME STAGE
+# =========================
+FROM node:22-slim
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# Puppeteer dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     fonts-liberation \
@@ -22,30 +71,21 @@ RUN apt-get update && apt-get install -y \
     libxrandr2 \
     xdg-utils \
     wget \
+    openssh-client \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# create app directory
-WORKDIR /app
+# Copy package.json first (better cache)
+COPY --from=build /app/bifi_app_be/package*.json ./
 
-# copy everthing
-COPY . .
+# Install only production deps
+RUN npm install --omit=dev
 
-# clone submodule
-RUN git submodule update --progress --init --recursive
-RUN git -C ./bifi_app_be checkout nodev22
+# Copy built app
+COPY --from=build /app/bifi_app_be/dist ./dist
 
-# install dependencies
-RUN npm --prefix ./bifi_app_be install
+# Expose port
+EXPOSE 8081
 
-# install puppeteer dependencies
-RUN npx --prefix ./bifi_app_be puppeteer browsers install chrome
-
-# build app
-RUN npm --prefix ./bifi_app_be run build
-
-# expose port
-EXPORT 8081
-
-# run app
-CMD ["node", "bifi_app_be/dist/index.js"]
+# Run app
+CMD ["node", "dist/index.js"]
